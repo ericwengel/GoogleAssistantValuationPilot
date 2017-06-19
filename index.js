@@ -21,6 +21,7 @@ const functions = require('firebase-functions');
 const UNRECOGNIZED_DEEP_LINK = 'deeplink.unknown';
 const TELL_FACT = 'tell.fact';
 const TELL_CAT_FACT = 'tell.cat.fact';
+const TELL_VALUE = 'tell.value';
 
 // API.AI parameter names
 const CATEGORY_ARGUMENT = 'category';
@@ -28,14 +29,21 @@ const CATEGORY_ARGUMENT = 'category';
 // API.AI Contexts/lifespans
 const FACTS_CONTEXT = 'choose_fact-followup';
 const CAT_CONTEXT = 'choose_cats-followup';
+const VALUE_CONTEXT = 'choose_value-followup';
 const DEFAULT_LIFESPAN = 5;
 const END_LIFESPAN = 0;
 
 const FACT_TYPE = {
   HISTORY: 'history',
   HEADQUARTERS: 'headquarters',
-  CATS: 'cats'
+  CATS: 'cats',
+  VALUE: 'value'
 };
+
+const VALUE_FACTS = new Set([
+  'test',
+  'test2'
+]);
 
 const HISTORY_FACTS = new Set([
   'Google was founded in 1998.',
@@ -58,24 +66,8 @@ const CAT_FACTS = new Set([
 
 const GOOGLE_IMAGES = [
   [
-    'https://storage.googleapis.com/gweb-uniblog-publish-prod/images/Search_GSA.2e16d0ba.fill-300x300.png',
-    'Google app logo'
-  ],
-  [
-    'https://storage.googleapis.com/gweb-uniblog-publish-prod/images/Google_Logo.max-900x900.png',
-    'Google logo'
-  ],
-  [
-    'https://storage.googleapis.com/gweb-uniblog-publish-prod/images/Dinosaur-skeleton-at-Google.max-900x900.jpg',
-    'Stan the Dinosaur at Googleplex'
-  ],
-  [
-    'https://storage.googleapis.com/gweb-uniblog-publish-prod/images/Wide-view-of-Google-campus.max-900x900.jpg',
-    'Googleplex'
-  ],
-  [
-    'https://storage.googleapis.com/gweb-uniblog-publish-prod/images/Bikes-on-the-Google-campus.2e16d0ba.fill-300x300.jpg',
-    'Biking at Googleplex'
+    'https://s3.amazonaws.com/images.hagerty.com/vehicle/web/1968-Mustang_1968_Cab.jpg',
+    'Ford Mustang'
   ]
 ];
 
@@ -100,12 +92,12 @@ const NO_INPUTS = [
 // https://developers.google.com/actions/tools/sound-library
 const MEOW_SRC = 'https://actions.google.com/sounds/v1/animals/cat_purr_close.ogg';
 
-function getRandomImage (images) {
+function getRandomImage(images) {
   let randomIndex = Math.floor(Math.random() * images.length);
   return images[randomIndex];
 }
 
-function getRandomFact (facts) {
+function getRandomFact(facts) {
   if (facts.size <= 0) {
     return null;
   }
@@ -125,12 +117,15 @@ function getRandomFact (facts) {
 }
 
 exports.factsAboutGoogle = functions.https.onRequest((request, response) => {
-  const app = new App({ request, response });
+  const app = new App({
+    request,
+    response
+  });
   console.log('Request headers: ' + JSON.stringify(request.headers));
   console.log('Request body: ' + JSON.stringify(request.body));
 
   // Greet the user and direct them to next turn
-  function unhandledDeepLinks (app) {
+  function unhandledDeepLinks(app) {
     if (app.hasSurfaceCapability(app.SurfaceCapabilities.SCREEN_OUTPUT)) {
       app.ask(app.buildRichResponse()
         .addSimpleResponse(`Welcome to Facts about Google! I'd really rather \
@@ -147,10 +142,50 @@ Google's history or its headquarters. Which do you want to hear about?`,
     }
   }
 
+  /**
+   * 
+   * Vehicle value test 
+   */
+
+  function tellValue(app) {
+    let valueFacts = app.data.valueFacts ?
+      new Set(app.data.valueFacts) : VALUE_FACTS;
+    
+      let fact = getRandomFact(valueFacts);
+
+      let rawData = app.getRawInput();
+      let matchVehicle = rawData.match(/\d{4}.*$/ig);
+      let factPrefix;
+
+      if(app.getRawInput().indexOf('ford mustang') > 1){
+        factPrefix = "Sure, your "+matchVehicle+" is worth $57,000. Please buy insurance from Hagerty.";
+      } else {
+        factPrefix = 'Sorry, we couldn\'t find a value for that vehicle. Please try again.';
+      }
+
+      app.data.valueFacts = Array.from(valueFacts);
+      if (app.hasSurfaceCapability(app.SurfaceCapabilities.SCREEN_OUTPUT)) {
+        let image = getRandomImage(GOOGLE_IMAGES);
+        app.ask(app.buildRichResponse()
+          .addSimpleResponse(factPrefix)
+          .addBasicCard(app.buildBasicCard(fact)
+            .addButton(LINK_OUT_TEXT, GOOGLE_LINK)
+            .setImage(image[0], image[1]))
+          .addSimpleResponse(NEXT_FACT_DIRECTIVE)
+          .addSuggestions(CONFIRMATION_SUGGESTIONS));
+      } else {
+        app.ask(factPrefix + fact + NEXT_FACT_DIRECTIVE, NO_INPUTS);
+      }
+      return;
+  }
+
+  /**
+   * END VALUE TEST
+   */
   // Say a fact
-  function tellFact (app) {
-    let historyFacts = app.data.historyFacts
-      ? new Set(app.data.historyFacts) : HISTORY_FACTS;
+  function tellFact(app) {
+    let historyFacts = app.data.historyFacts ?
+      new Set(app.data.historyFacts) : HISTORY_FACTS;
     let hqFacts = app.data.hqFacts ? new Set(app.data.hqFacts) : HQ_FACTS;
 
     if (historyFacts.size === 0 && hqFacts.size === 0) {
@@ -243,7 +278,7 @@ hear about?`, NO_INPUTS);
   }
 
   // Say a cat fact
-  function tellCatFact (app) {
+  function tellCatFact(app) {
     let catFacts = app.data.catFacts ? new Set(app.data.catFacts) : CAT_FACTS;
     let fact = getRandomFact(catFacts);
     if (fact === null) {
@@ -265,7 +300,7 @@ hear about?`, NO_INPUTS);
 
     app.data.catFacts = Array.from(catFacts);
     let factPrefix =
-      `Alright, here's a cat fact. <audio src="${MEOW_SRC}"></audio>`;
+      `Alright, here's a dog fact. <audio src="${MEOW_SRC}"></audio>`;
     if (app.hasSurfaceCapability(app.SurfaceCapabilities.SCREEN_OUTPUT)) {
       app.ask(app.buildRichResponse()
         .addSimpleResponse(`<speak>${factPrefix}</speak>`)
@@ -282,7 +317,7 @@ hear about?`, NO_INPUTS);
   }
 
   // Say they've heard it all about this category
-  function noFactsLeft (app, currentCategory, redirectCategory) {
+  function noFactsLeft(app, currentCategory, redirectCategory) {
     let parameters = {};
     parameters[CATEGORY_ARGUMENT] = redirectCategory;
     // Replace the outgoing facts context with different parameters
@@ -299,6 +334,7 @@ ${redirectCategory} instead. `;
 
   let actionMap = new Map();
   actionMap.set(UNRECOGNIZED_DEEP_LINK, unhandledDeepLinks);
+  actionMap.set(TELL_VALUE, tellValue);
   actionMap.set(TELL_FACT, tellFact);
   actionMap.set(TELL_CAT_FACT, tellCatFact);
 
